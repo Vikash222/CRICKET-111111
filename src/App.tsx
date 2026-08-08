@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { db } from './services/db';
 import { supabase } from './lib/supabase';
-import { organizerLogout, restoreOrganizerSession } from './services/organizerAuth';
 import { UserRole, Profile } from './types/cricket';
 import { Navbar } from './components/Navbar';
 import { BottomNav, NavTab } from './components/BottomNav';
@@ -13,7 +12,6 @@ import { PlayerProfileView } from './components/player/PlayerProfileView';
 import { TournamentView } from './components/tournament/TournamentView';
 import { RankingsView } from './components/rankings/RankingsView';
 import { AdminDashboard } from './components/admin/AdminDashboard';
-import { OrganizerRoomDashboard } from './components/OrganizerRoomDashboard';
 import { SearchModal } from './components/SearchModal';
 import { PublicMatchLinkModal } from './components/PublicMatchLinkModal';
 import { PlayerProfileEditor } from './components/PlayerProfileEditor';
@@ -40,7 +38,6 @@ export default function App() {
     setCurrentUser(profile);
     db.setCurrentUser(profile);
     setAuthenticated(true);
-    if (profile.role === 'organizer') setActiveTab('admin');
   };
 
   const loadProfile = async (userId: string, email: string) => {
@@ -51,13 +48,6 @@ export default function App() {
   };
 
   const refreshAuthState = async () => {
-    const organizer = await restoreOrganizerSession();
-    if (organizer) {
-      applyProfile(organizer);
-      setSessionReady(true);
-      return;
-    }
-
     const { data: { session }, error } = await supabase.auth.getSession();
     if (error) throw error;
     if (!session?.user) {
@@ -82,17 +72,10 @@ export default function App() {
 
     const { data: listener } = supabase.auth.onAuthStateChange((event, session) => {
       if (!mounted) return;
-      // Organizer authentication is independent from Supabase Auth.
       if (!session?.user) {
-        void restoreOrganizerSession().then((organizer) => {
-          if (!mounted) return;
-          if (organizer) applyProfile(organizer);
-          else {
-            setAuthenticated(false);
-            setCurrentUser(null);
-          }
-          setSessionReady(true);
-        });
+        setAuthenticated(false);
+        setCurrentUser(null);
+        setSessionReady(true);
         return;
       }
       if (event === 'SIGNED_IN' || event === 'INITIAL_SESSION' || event === 'TOKEN_REFRESHED') {
@@ -115,11 +98,7 @@ export default function App() {
   };
 
   const handleLogout = async () => {
-    if (currentUser?.role === 'organizer') {
-      await organizerLogout();
-    } else {
-      await supabase.auth.signOut();
-    }
+    await supabase.auth.signOut();
     setAuthenticated(false);
     setCurrentUser(null);
     setActiveTab('home');
@@ -133,7 +112,6 @@ export default function App() {
   if (!authenticated || !currentUser) return <LanguageProvider><AuthScreen onAuthenticated={handleAuthenticated} /></LanguageProvider>;
 
   const currentRole: UserRole = currentUser.role;
-  const isOrganizer = ['organizer', 'tournament_organizer', 'super_admin'].includes(currentRole);
   const language = (currentUser.language || 'english') as Language;
 
   return <LanguageProvider initialLanguage={language}>
@@ -145,7 +123,7 @@ export default function App() {
         {activeTab === 'scoring' && selectedMatchId && <ScoringInterface matchId={selectedMatchId} onViewLiveMatch={() => setActiveTab('live')} />}
         {activeTab === 'tournaments' && <TournamentView onSelectMatch={handleSelectMatch} />}
         {activeTab === 'rankings' && <RankingsView />}
-        {activeTab === 'admin' && (isOrganizer ? <OrganizerRoomDashboard /> : <AdminDashboard />)}
+        {activeTab === 'admin' && <AdminDashboard />}
         {activeTab === 'profile' && <PlayerProfileView playerId={selectedPlayerId || currentUser.id} onEdit={() => setShowProfileEditor(true)} />}
       </main>
       <BottomNav activeTab={activeTab} onTabChange={setActiveTab} userRole={currentRole} />
