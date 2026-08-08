@@ -1,4 +1,5 @@
--- Production authentication/profile setup.
+-- Production authentication/profile setup for CollegeCricket.live
+-- Run AFTER 20260808000000_init_cricket_schema.sql
 -- New users are created as players. Elevated roles must be assigned by an admin.
 
 CREATE OR REPLACE FUNCTION public.handle_new_user()
@@ -13,9 +14,13 @@ BEGIN
     NEW.id,
     COALESCE(NEW.email, ''),
     COALESCE(NULLIF(NEW.raw_user_meta_data ->> 'full_name', ''), split_part(COALESCE(NEW.email, 'player'), '@', 1)),
-    'player'
+    'player'::user_role
   )
-  ON CONFLICT (id) DO NOTHING;
+  ON CONFLICT (id) DO UPDATE SET
+    email = EXCLUDED.email,
+    full_name = COALESCE(NULLIF(public.profiles.full_name, ''), EXCLUDED.full_name),
+    updated_at = NOW();
+
   RETURN NEW;
 END;
 $$;
@@ -23,18 +28,28 @@ $$;
 DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
 CREATE TRIGGER on_auth_user_created
   AFTER INSERT ON auth.users
-  FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
+  FOR EACH ROW
+  EXECUTE FUNCTION public.handle_new_user();
 
 DROP POLICY IF EXISTS "Users edit own profile" ON public.profiles;
+DROP POLICY IF EXISTS "Users read own profile" ON public.profiles;
+DROP POLICY IF EXISTS "Users insert own profile" ON public.profiles;
+DROP POLICY IF EXISTS "Users edit own profile without role escalation" ON public.profiles;
+
 CREATE POLICY "Users read own profile" ON public.profiles
-  FOR SELECT USING (auth.uid() = id);
+  FOR SELECT
+  USING (auth.uid() = id);
 
 CREATE POLICY "Users insert own profile" ON public.profiles
-  FOR INSERT WITH CHECK (auth.uid() = id AND role = 'player');
+  FOR INSERT
+  WITH CHECK (auth.uid() = id AND role = 'player'::user_role);
 
 CREATE POLICY "Users edit own profile without role escalation" ON public.profiles
   FOR UPDATE
   USING (auth.uid() = id)
-  WITH CHECK (auth.uid() = id AND role = (SELECT p.role FROM public.profiles p WHERE p.id = auth.uid()));
+  WITH CHECK (
+    auth.uid() = id
+    AND role = (SELECT p.role FROM public.profiles p WHERE p.id = auth.uid())
+  );
 
 GRANT SELECT, INSERT, UPDATE ON public.profiles TO authenticated;
