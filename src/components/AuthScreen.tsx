@@ -1,17 +1,13 @@
 import React, { useState } from 'react';
-import { Mail, Lock, User, Trophy, Eye, EyeOff, Loader2, ShieldCheck } from 'lucide-react';
+import { Mail, Lock, User, Trophy, Eye, EyeOff, Loader2 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
-import { organizerLogin } from '../services/organizerAuth';
 import { Profile } from '../types/cricket';
 
 interface AuthScreenProps {
   onAuthenticated: (profile?: Profile) => Promise<void> | void;
 }
 
-type LoginType = 'player' | 'organizer';
-
 export const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthenticated }) => {
-  const [loginType, setLoginType] = useState<LoginType>('player');
   const [mode, setMode] = useState<'login' | 'signup'>('login');
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
@@ -21,15 +17,6 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthenticated }) => {
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
 
-  const chooseType = (type: LoginType) => {
-    setLoginType(type);
-    setMode('login');
-    setError('');
-    setMessage('');
-    setEmail('');
-    setPassword('');
-  };
-
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
     setLoading(true);
@@ -37,12 +24,6 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthenticated }) => {
     setMessage('');
 
     try {
-      if (loginType === 'organizer') {
-        const profile = await organizerLogin(email, password);
-        await onAuthenticated(profile);
-        return;
-      }
-
       if (mode === 'signup') {
         if (fullName.trim().length < 2) throw new Error('Please enter your full name.');
         if (password.length < 6) throw new Error('Password must be at least 6 characters.');
@@ -83,39 +64,26 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthenticated }) => {
             <Trophy className="w-8 h-8" />
           </div>
           <h1 className="mt-5 text-3xl font-black tracking-tight">CollegeCricket<span className="text-lime-400">.live</span></h1>
-          <p className="mt-2 text-sm text-slate-400">Choose how you want to access the platform</p>
+          <p className="mt-2 text-sm text-slate-400">Your cricket profile, matches and career statistics</p>
         </div>
 
         <div className="bg-[#0F172A] border border-slate-800 rounded-2xl p-6 shadow-2xl">
-          <div className="grid grid-cols-2 gap-3 mb-6">
-            <button type="button" onClick={() => chooseType('player')} className={`rounded-xl border p-4 text-left transition ${loginType === 'player' ? 'border-lime-500 bg-lime-500/10' : 'border-slate-700 bg-slate-900'}`}>
-              <div className="text-2xl">🏏</div>
-              <div className="mt-2 font-black">Player</div>
-              <div className="text-xs text-slate-400 mt-1">Player account & statistics</div>
-            </button>
-            <button type="button" onClick={() => chooseType('organizer')} className={`rounded-xl border p-4 text-left transition ${loginType === 'organizer' ? 'border-lime-500 bg-lime-500/10' : 'border-slate-700 bg-slate-900'}`}>
-              <div className="text-2xl">🏆</div>
-              <div className="mt-2 font-black">Organizer</div>
-              <div className="text-xs text-slate-400 mt-1">Tournament & match management</div>
-            </button>
-          </div>
-
           <div className="flex items-center gap-2 mb-5 rounded-lg bg-slate-900 px-3 py-2 text-xs text-slate-400">
-            {loginType === 'player' ? <User className="w-4 h-4 text-lime-400" /> : <ShieldCheck className="w-4 h-4 text-lime-400" />}
-            <span>{loginType === 'player' ? 'Player login uses Supabase Auth.' : 'Organizer login uses a separate secure organizer account — no Supabase Auth.'}</span>
+            <User className="w-4 h-4 text-lime-400" />
+            <span>Player account. Secure login is handled by Supabase Auth.</span>
           </div>
 
-          {loginType === 'player' && <div className="grid grid-cols-2 bg-slate-900 rounded-xl p-1 mb-6">
+          <div className="grid grid-cols-2 bg-slate-900 rounded-xl p-1 mb-6">
             <button type="button" onClick={() => { setMode('login'); setError(''); setMessage(''); }} className={`py-2.5 rounded-lg text-sm font-bold ${mode === 'login' ? 'bg-lime-500 text-slate-950' : 'text-slate-400'}`}>Login</button>
             <button type="button" onClick={() => { setMode('signup'); setError(''); setMessage(''); }} className={`py-2.5 rounded-lg text-sm font-bold ${mode === 'signup' ? 'bg-lime-500 text-slate-950' : 'text-slate-400'}`}>Create account</button>
-          </div>}
+          </div>
 
           <form onSubmit={submit} className="space-y-4">
-            {loginType === 'player' && mode === 'signup' && (
+            {mode === 'signup' && (
               <label className="block"><span className="text-xs font-bold text-slate-400">FULL NAME</span><div className="mt-1.5 relative"><User className="absolute left-3 top-3.5 w-4 h-4 text-slate-500" /><input value={fullName} onChange={(e) => setFullName(e.target.value)} className="w-full bg-slate-900 border border-slate-700 rounded-xl py-3 pl-10 pr-3 outline-none focus:border-lime-500" placeholder="Your name" required /></div></label>
             )}
 
-            <label className="block"><span className="text-xs font-bold text-slate-400">{loginType === 'organizer' ? 'ORGANIZER EMAIL' : 'EMAIL'}</span><div className="mt-1.5 relative"><Mail className="absolute left-3 top-3.5 w-4 h-4 text-slate-500" /><input type="email" value={email} onChange={(e) => setEmail(e.target.value)} className="w-full bg-slate-900 border border-slate-700 rounded-xl py-3 pl-10 pr-3 outline-none focus:border-lime-500" placeholder={loginType === 'organizer' ? 'organizer@college.edu' : 'you@example.com'} required /></div></label>
+            <label className="block"><span className="text-xs font-bold text-slate-400">EMAIL</span><div className="mt-1.5 relative"><Mail className="absolute left-3 top-3.5 w-4 h-4 text-slate-500" /><input type="email" value={email} onChange={(e) => setEmail(e.target.value)} className="w-full bg-slate-900 border border-slate-700 rounded-xl py-3 pl-10 pr-3 outline-none focus:border-lime-500" placeholder="you@example.com" required /></div></label>
 
             <label className="block"><span className="text-xs font-bold text-slate-400">PASSWORD</span><div className="mt-1.5 relative"><Lock className="absolute left-3 top-3.5 w-4 h-4 text-slate-500" /><input type={showPassword ? 'text' : 'password'} value={password} onChange={(e) => setPassword(e.target.value)} className="w-full bg-slate-900 border border-slate-700 rounded-xl py-3 pl-10 pr-11 outline-none focus:border-lime-500" placeholder="••••••••" required minLength={6} /><button type="button" onClick={() => setShowPassword((v) => !v)} className="absolute right-3 top-3.5 text-slate-500">{showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}</button></div></label>
 
@@ -124,12 +92,11 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthenticated }) => {
 
             <button disabled={loading} className="w-full py-3 rounded-xl bg-lime-500 hover:bg-lime-400 disabled:opacity-60 text-slate-950 font-black flex items-center justify-center gap-2">
               {loading && <Loader2 className="w-4 h-4 animate-spin" />}
-              {loginType === 'organizer' ? 'Login as Organizer' : mode === 'login' ? 'Login as Player' : 'Create Player Account'}
+              {mode === 'login' ? 'Login' : 'Create Player Account'}
             </button>
           </form>
 
-          {loginType === 'organizer' && <p className="text-center text-xs text-slate-500 mt-5">Organizer accounts are created by the platform/college administrator. Public organizer signup is disabled.</p>}
-          {loginType === 'player' && <p className="text-center text-xs text-slate-500 mt-5">New accounts start as <span className="text-slate-300 font-semibold">Player</span>. Elevated roles are assigned separately.</p>}
+          <p className="text-center text-xs text-slate-500 mt-5">New accounts start as <span className="text-slate-300 font-semibold">Player</span>. Match and tournament permissions are handled separately.</p>
         </div>
       </div>
     </div>
