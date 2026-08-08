@@ -14,7 +14,7 @@ import { AdminDashboard } from './components/admin/AdminDashboard';
 import { OrganizerDashboard } from './components/OrganizerDashboard';
 import { SearchModal } from './components/SearchModal';
 import { PublicMatchLinkModal } from './components/PublicMatchLinkModal';
-import { OnboardingModal } from './components/OnboardingModal';
+import { PlayerProfileEditor } from './components/PlayerProfileEditor';
 import { LanguageSettingsModal } from './components/LanguageSettingsModal';
 import { AuthScreen } from './components/AuthScreen';
 import { LanguageProvider, Language } from './i18n';
@@ -29,7 +29,7 @@ export default function App() {
   const [currentUser, setCurrentUser] = useState<Profile | null>(null);
   const [showSearchModal, setShowSearchModal] = useState(false);
   const [showShareModal, setShowShareModal] = useState(false);
-  const [showOnboardingModal, setShowOnboardingModal] = useState(false);
+  const [showProfileEditor, setShowProfileEditor] = useState(false);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [selectedMatchId, setSelectedMatchId] = useState<string>(publicMatchId || 'match-live-1');
   const [selectedPlayerId, setSelectedPlayerId] = useState<string>('p-1');
@@ -64,11 +64,9 @@ export default function App() {
   const handleSelectMatch = (matchId: string) => { setSelectedMatchId(matchId); setActiveTab('live'); };
   const handleSelectPlayer = (playerId: string) => { setSelectedPlayerId(playerId); setActiveTab('profile'); };
 
-  if (isPublicMatchRoute) {
-    return <LanguageProvider><div className="min-h-screen bg-slate-50 text-slate-900 font-sans antialiased"><MatchDetailView matchId={publicMatchId!} onShareMatch={() => {}} /></div></LanguageProvider>;
-  }
+  if (isPublicMatchRoute) return <LanguageProvider><div className="min-h-screen bg-slate-50 text-slate-900 font-sans antialiased"><MatchDetailView matchId={publicMatchId!} onShareMatch={() => {}} /></div></LanguageProvider>;
   if (!sessionReady) return <LanguageProvider><div className="min-h-screen bg-slate-50 flex items-center justify-center text-emerald-600 font-bold">Loading CollegeCricket.live…</div></LanguageProvider>;
-  if (!authenticated || !currentUser) return <LanguageProvider initialLanguage={(currentUser?.language || 'english') as Language}><AuthScreen onAuthenticated={() => setSessionReady(true)} /></LanguageProvider>;
+  if (!authenticated || !currentUser) return <LanguageProvider><AuthScreen onAuthenticated={() => setSessionReady(true)} /></LanguageProvider>;
 
   const currentRole: UserRole = currentUser.role;
   const isOrganizer = ['organizer', 'tournament_organizer', 'super_admin'].includes(currentRole);
@@ -76,7 +74,7 @@ export default function App() {
 
   return <LanguageProvider initialLanguage={language}>
     <div className="min-h-screen bg-slate-50 text-slate-900 font-sans antialiased selection:bg-emerald-100 selection:text-emerald-900">
-      <Navbar currentRole={currentRole} onOpenSearch={() => setShowSearchModal(true)} onOpenProfile={() => setShowOnboardingModal(true)} onOpenSettings={() => setShowSettingsModal(true)} onShareMatch={() => setShowShareModal(true)} onLogout={handleLogout} />
+      <Navbar currentRole={currentRole} onOpenSearch={() => setShowSearchModal(true)} onOpenProfile={() => setShowProfileEditor(true)} onOpenSettings={() => setShowSettingsModal(true)} onShareMatch={() => setShowShareModal(true)} onLogout={handleLogout} />
       <main>
         {activeTab === 'home' && <HomeView onSelectMatch={handleSelectMatch} onSelectPlayer={handleSelectPlayer} onNavigateToScorer={() => setActiveTab('scoring')} />}
         {activeTab === 'live' && <MatchDetailView matchId={selectedMatchId} onShareMatch={() => setShowShareModal(true)} />}
@@ -89,7 +87,7 @@ export default function App() {
       <BottomNav activeTab={activeTab} onTabChange={setActiveTab} userRole={currentRole} />
       {showSearchModal && <SearchModal onClose={() => setShowSearchModal(false)} onSelectPlayer={handleSelectPlayer} onSelectMatch={handleSelectMatch} />}
       {showShareModal && <PublicMatchLinkModal matchId={selectedMatchId} onClose={() => setShowShareModal(false)} />}
-      {showOnboardingModal && <OnboardingModal onClose={() => setShowOnboardingModal(false)} />}
+      {showProfileEditor && <PlayerProfileEditor onClose={() => setShowProfileEditor(false)} />}
       {showSettingsModal && <LanguageSettingsModal onClose={() => setShowSettingsModal(false)} />}
     </div>
   </LanguageProvider>;
