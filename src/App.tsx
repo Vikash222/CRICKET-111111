@@ -12,6 +12,7 @@ import { PlayerProfileView } from './components/player/PlayerProfileView';
 import { TournamentView } from './components/tournament/TournamentView';
 import { RankingsView } from './components/rankings/RankingsView';
 import { AdminDashboard } from './components/admin/AdminDashboard';
+import { MyTeamView } from './components/team/MyTeamView';
 import { SearchModal } from './components/SearchModal';
 import { PublicMatchLinkModal } from './components/PublicMatchLinkModal';
 import { PlayerProfileEditor } from './components/PlayerProfileEditor';
@@ -34,76 +35,12 @@ export default function App() {
   const [selectedMatchId, setSelectedMatchId] = useState<string>('');
   const [selectedPlayerId, setSelectedPlayerId] = useState<string>('');
 
-  const applyProfile = (profile: Profile) => {
-    setCurrentUser(profile);
-    db.setCurrentUser(profile);
-    setAuthenticated(true);
-  };
-
-  const loadProfile = async (userId: string, email: string) => {
-    const { data, error } = await supabase.from('profiles').select('*').eq('id', userId).maybeSingle();
-    const fallback: Profile = { id: userId, email, full_name: email.split('@')[0], role: 'player', language: 'english', is_verified: false };
-    const profile = (!error && data ? data : fallback) as Profile;
-    applyProfile(profile);
-  };
-
-  const refreshAuthState = async () => {
-    const { data: { session }, error } = await supabase.auth.getSession();
-    if (error) throw error;
-    if (!session?.user) {
-      setAuthenticated(false);
-      setCurrentUser(null);
-      setSessionReady(true);
-      return;
-    }
-    await loadProfile(session.user.id, session.user.email || '');
-    setSessionReady(true);
-  };
-
-  useEffect(() => {
-    if (isPublicMatchRoute) return;
-    let mounted = true;
-    refreshAuthState().catch(() => {
-      if (!mounted) return;
-      setAuthenticated(false);
-      setCurrentUser(null);
-      setSessionReady(true);
-    });
-
-    const { data: listener } = supabase.auth.onAuthStateChange((event, session) => {
-      if (!mounted) return;
-      if (!session?.user) {
-        setAuthenticated(false);
-        setCurrentUser(null);
-        setSessionReady(true);
-        return;
-      }
-      if (event === 'SIGNED_IN' || event === 'INITIAL_SESSION' || event === 'TOKEN_REFRESHED') {
-        void loadProfile(session.user.id, session.user.email || '').finally(() => {
-          if (mounted) setSessionReady(true);
-        });
-      }
-    });
-
-    return () => { mounted = false; listener.subscription.unsubscribe(); };
-  }, [isPublicMatchRoute]);
-
-  const handleAuthenticated = async (profile?: Profile) => {
-    if (profile) {
-      applyProfile(profile);
-      setSessionReady(true);
-      return;
-    }
-    await refreshAuthState();
-  };
-
-  const handleLogout = async () => {
-    await supabase.auth.signOut();
-    setAuthenticated(false);
-    setCurrentUser(null);
-    setActiveTab('home');
-  };
-
+  const applyProfile = (profile: Profile) => { setCurrentUser(profile); db.setCurrentUser(profile); setAuthenticated(true); };
+  const loadProfile = async (userId: string, email: string) => { const { data, error } = await supabase.from('profiles').select('*').eq('id', userId).maybeSingle(); const fallback: Profile = { id: userId, email, full_name: email.split('@')[0], role: 'player', language: 'english', is_verified: false }; applyProfile((!error && data ? data : fallback) as Profile); };
+  const refreshAuthState = async () => { const { data: { session }, error } = await supabase.auth.getSession(); if (error) throw error; if (!session?.user) { setAuthenticated(false); setCurrentUser(null); setSessionReady(true); return; } await loadProfile(session.user.id, session.user.email || ''); setSessionReady(true); };
+  useEffect(() => { if (isPublicMatchRoute) return; let mounted = true; refreshAuthState().catch(() => { if (!mounted) return; setAuthenticated(false); setCurrentUser(null); setSessionReady(true); }); const { data: listener } = supabase.auth.onAuthStateChange((event, session) => { if (!mounted) return; if (!session?.user) { setAuthenticated(false); setCurrentUser(null); setSessionReady(true); return; } if (event === 'SIGNED_IN' || event === 'INITIAL_SESSION' || event === 'TOKEN_REFRESHED') void loadProfile(session.user.id, session.user.email || '').finally(() => { if (mounted) setSessionReady(true); }); }); return () => { mounted = false; listener.subscription.unsubscribe(); }; }, [isPublicMatchRoute]);
+  const handleAuthenticated = async (profile?: Profile) => { if (profile) { applyProfile(profile); setSessionReady(true); return; } await refreshAuthState(); };
+  const handleLogout = async () => { await supabase.auth.signOut(); setAuthenticated(false); setCurrentUser(null); setActiveTab('home'); };
   const handleSelectMatch = (matchId: string) => { setSelectedMatchId(matchId); setActiveTab('live'); };
   const handleSelectPlayer = (playerId: string) => { setSelectedPlayerId(playerId); setActiveTab('profile'); };
 
@@ -113,7 +50,6 @@ export default function App() {
 
   const currentRole: UserRole = currentUser.role;
   const language = (currentUser.language || 'english') as Language;
-
   return <LanguageProvider initialLanguage={language}>
     <div className="min-h-screen bg-slate-50 text-slate-900 font-sans antialiased selection:bg-emerald-100 selection:text-emerald-900">
       <Navbar currentRole={currentRole} onOpenSearch={() => setShowSearchModal(true)} onOpenProfile={() => setShowProfileEditor(true)} onOpenSettings={() => setShowSettingsModal(true)} onShareMatch={() => selectedMatchId && setShowShareModal(true)} onLogout={handleLogout} />
@@ -121,6 +57,7 @@ export default function App() {
         {activeTab === 'home' && <HomeView onSelectMatch={handleSelectMatch} onSelectPlayer={handleSelectPlayer} onNavigateToScorer={() => selectedMatchId && setActiveTab('scoring')} />}
         {activeTab === 'live' && selectedMatchId && <MatchDetailView matchId={selectedMatchId} onShareMatch={() => setShowShareModal(true)} />}
         {activeTab === 'scoring' && selectedMatchId && <ScoringInterface matchId={selectedMatchId} onViewLiveMatch={() => setActiveTab('live')} />}
+        {activeTab === 'team' && <MyTeamView userId={currentUser.id} />}
         {activeTab === 'tournaments' && <TournamentView onSelectMatch={handleSelectMatch} />}
         {activeTab === 'rankings' && <RankingsView />}
         {activeTab === 'admin' && <AdminDashboard />}
