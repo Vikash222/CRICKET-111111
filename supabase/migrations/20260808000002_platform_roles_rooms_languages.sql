@@ -1,7 +1,6 @@
 -- CollegeCricket.live production role, room, language and governance layer
 -- Run AFTER 20260808000000_init_cricket_schema.sql and auth profile migration.
 
--- New platform roles. Legacy roles remain temporarily for old records.
 DO $$ BEGIN ALTER TYPE user_role ADD VALUE IF NOT EXISTS 'organizer'; EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 DO $$ BEGIN ALTER TYPE user_role ADD VALUE IF NOT EXISTS 'captain'; EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 DO $$ BEGIN ALTER TYPE user_role ADD VALUE IF NOT EXISTS 'umpire'; EXCEPTION WHEN duplicate_object THEN NULL; END $$;
@@ -117,7 +116,6 @@ CREATE TABLE IF NOT EXISTS public.match_followers (
   UNIQUE(match_id, guest_token)
 );
 
--- Simple room code generator for organizer-created matches.
 CREATE OR REPLACE FUNCTION public.generate_match_room_code()
 RETURNS TEXT LANGUAGE plpgsql AS $$
 DECLARE code TEXT;
@@ -130,49 +128,49 @@ BEGIN
 END;
 $$;
 
--- Keep role changes server-controlled: players cannot promote themselves.
+-- Players cannot promote themselves. Organizers may promote a player to captain/umpire.
 CREATE OR REPLACE FUNCTION public.protect_profile_role_change()
 RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
-DECLARE actor_role user_role;
+DECLARE actor_role TEXT;
 BEGIN
   IF OLD.role = NEW.role THEN RETURN NEW; END IF;
-  SELECT role INTO actor_role FROM public.profiles WHERE id = auth.uid();
+  SELECT role::TEXT INTO actor_role FROM public.profiles WHERE id = auth.uid();
   IF actor_role = 'super_admin' THEN RETURN NEW; END IF;
-  IF actor_role = 'organizer' AND OLD.role = 'player' AND NEW.role IN ('captain','umpire') THEN RETURN NEW; END IF;
+  IF actor_role = 'organizer' AND OLD.role::TEXT = 'player' AND NEW.role::TEXT IN ('captain','umpire') THEN RETURN NEW; END IF;
   RAISE EXCEPTION 'Role changes are restricted to authorized administrators';
 END;
 $$;
 DROP TRIGGER IF EXISTS protect_profile_role_change ON public.profiles;
-CREATE TRIGGER protect_profile_role_change
-BEFORE UPDATE OF role ON public.profiles
-FOR EACH ROW EXECUTE FUNCTION public.protect_profile_role_change();
+CREATE TRIGGER protect_profile_role_change BEFORE UPDATE OF role ON public.profiles FOR EACH ROW EXECUTE FUNCTION public.protect_profile_role_change();
 
--- A profile is soft-deleted so completed match history and statistics remain intact.
+-- Soft deletion preserves historical cricket data and is allowed only after all matches involving the player are finished.
 CREATE OR REPLACE FUNCTION public.soft_delete_profile()
 RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
-DECLARE actor_role user_role;
+DECLARE actor_role TEXT;
 BEGIN
-  SELECT role INTO actor_role FROM public.profiles WHERE id = auth.uid();
-  IF actor_role IS DISTINCT FROM 'super_admin' THEN
-    RAISE EXCEPTION 'Only Super Admin can delete profiles';
-  END IF;
+  SELECT role::TEXT INTO actor_role FROM public.profiles WHERE id = auth.uid();
+  IF actor_role IS DISTINCT FROM 'super_admin' THEN RAISE EXCEPTION 'Only Super Admin can delete profiles'; END IF;
   IF EXISTS (
-    SELECT 1 FROM public.match_players mp
-    JOIN public.matches m ON m.id = mp.match_id
-    WHERE mp.player_id = OLD.id AND m.status NOT IN ('completed','abandoned','cancelled')
-  ) THEN
-    RAISE EXCEPTION 'Player cannot be deleted while an active or scheduled match exists';
-  END IF;
-  UPDATE public.profiles
-  SET is_deleted = TRUE, deleted_at = NOW(), deleted_by = auth.uid(), full_name = 'Deleted Player', avatar_url = NULL
-  WHERE id = OLD.id;
+    SELECT 1 FROM public.match_players mp JOIN public.matches m ON m.id = mp.match_id
+    WHERE mp.player_id = OLD.id AND m.status::TEXT NOT IN ('completed','abandoned','cancelled')
+  ) THEN RAISE EXCEPTION 'Player cannot be deleted while an active or scheduled match exists'; END IF;
+  UPDATE public.profiles SET is_deleted = TRUE, deleted_at = NOW(), deleted_by = auth.uid(), full_name = 'Deleted Player', avatar_url = NULL WHERE id = OLD.id;
   RETURN NULL;
 END;
 $$;
 DROP TRIGGER IF EXISTS prevent_profile_hard_delete ON public.profiles;
-CREATE TRIGGER prevent_profile_hard_delete
-BEFORE DELETE ON public.profiles
-FOR EACH ROW EXECUTE FUNCTION public.soft_delete_profile();
+CREATE TRIGGER prevent_profile_hard_delete BEFORE DELETE ON public.profiles FOR EACH ROW EXECUTE FUNCTION public.soft_delete_profile();
+
+-- Player profile images. The application uploads to avatars/{user_id}/...
+INSERT INTO storage.buckets (id, name, public) VALUES ('avatars', 'avatars', true) ON CONFLICT (id) DO NOTHING;
+DROP POLICY IF EXISTS "Public read player avatars" ON storage.objects;
+CREATE POLICY "Public read player avatars" ON storage.objects FOR SELECT USING (bucket_id = 'avatars');
+DROP POLICY IF EXISTS "Users upload own avatar" ON storage.objects;
+CREATE POLICY "Users upload own avatar" ON storage.objects FOR INSERT TO authenticated WITH CHECK (bucket_id = 'avatars' AND (storage.foldername(name))[1] = auth.uid()::text);
+DROP POLICY IF EXISTS "Users update own avatar" ON storage.objects;
+CREATE POLICY "Users update own avatar" ON storage.objects FOR UPDATE TO authenticated USING (bucket_id = 'avatars' AND (storage.foldername(name))[1] = auth.uid()::text) WITH CHECK (bucket_id = 'avatars' AND (storage.foldername(name))[1] = auth.uid()::text);
+DROP POLICY IF EXISTS "Users delete own avatar" ON storage.objects;
+CREATE POLICY "Users delete own avatar" ON storage.objects FOR DELETE TO authenticated USING (bucket_id = 'avatars' AND (storage.foldername(name))[1] = auth.uid()::text);
 
 ALTER TABLE public.match_rooms ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.match_officials ENABLE ROW LEVEL SECURITY;
@@ -184,24 +182,36 @@ ALTER TABLE public.match_followers ENABLE ROW LEVEL SECURITY;
 
 DROP POLICY IF EXISTS "Public read public match rooms" ON public.match_rooms;
 CREATE POLICY "Public read public match rooms" ON public.match_rooms FOR SELECT USING (is_public = TRUE);
+DROP POLICY IF EXISTS "Organizers create match rooms" ON public.match_rooms;
+CREATE POLICY "Organizers create match rooms" ON public.match_rooms FOR INSERT TO authenticated WITH CHECK (organizer_id = auth.uid() AND EXISTS (SELECT 1 FROM public.profiles p WHERE p.id = auth.uid() AND p.role::TEXT IN ('organizer','super_admin')));
+DROP POLICY IF EXISTS "Organizers update match rooms" ON public.match_rooms;
+CREATE POLICY "Organizers update match rooms" ON public.match_rooms FOR UPDATE TO authenticated USING (organizer_id = auth.uid() OR EXISTS (SELECT 1 FROM public.profiles p WHERE p.id = auth.uid() AND p.role::TEXT = 'super_admin'));
+
 DROP POLICY IF EXISTS "Public read match officials" ON public.match_officials;
 CREATE POLICY "Public read match officials" ON public.match_officials FOR SELECT USING (true);
+DROP POLICY IF EXISTS "Organizers manage match officials" ON public.match_officials;
+CREATE POLICY "Organizers manage match officials" ON public.match_officials FOR ALL TO authenticated USING (EXISTS (SELECT 1 FROM public.profiles p WHERE p.id = auth.uid() AND p.role::TEXT IN ('organizer','super_admin'))) WITH CHECK (EXISTS (SELECT 1 FROM public.profiles p WHERE p.id = auth.uid() AND p.role::TEXT IN ('organizer','super_admin')));
+
 DROP POLICY IF EXISTS "Public read player match stats" ON public.player_match_stats;
 CREATE POLICY "Public read player match stats" ON public.player_match_stats FOR SELECT USING (true);
 DROP POLICY IF EXISTS "Public read player tournament stats" ON public.player_tournament_stats;
 CREATE POLICY "Public read player tournament stats" ON public.player_tournament_stats FOR SELECT USING (true);
+
 DROP POLICY IF EXISTS "Users manage own followers" ON public.match_followers;
-CREATE POLICY "Users manage own followers" ON public.match_followers FOR ALL USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+CREATE POLICY "Users manage own followers" ON public.match_followers FOR ALL TO authenticated USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
 DROP POLICY IF EXISTS "Public can follow with guest token" ON public.match_followers;
 CREATE POLICY "Public can follow with guest token" ON public.match_followers FOR INSERT WITH CHECK (guest_token IS NOT NULL AND user_id IS NULL);
 
--- Realtime publication for live rooms and ball-by-ball viewers.
-DO $$ BEGIN
-  ALTER PUBLICATION supabase_realtime ADD TABLE public.matches;
-EXCEPTION WHEN duplicate_object THEN NULL; WHEN undefined_object THEN NULL; END $$;
-DO $$ BEGIN
-  ALTER PUBLICATION supabase_realtime ADD TABLE public.deliveries;
-EXCEPTION WHEN duplicate_object THEN NULL; WHEN undefined_object THEN NULL; END $$;
-DO $$ BEGIN
-  ALTER PUBLICATION supabase_realtime ADD TABLE public.match_rooms;
-EXCEPTION WHEN duplicate_object THEN NULL; WHEN undefined_object THEN NULL; END $$;
+DROP POLICY IF EXISTS "Users request profile deletion" ON public.profile_deletion_requests;
+CREATE POLICY "Users request profile deletion" ON public.profile_deletion_requests FOR INSERT TO authenticated WITH CHECK (requested_by = auth.uid() AND player_id = auth.uid());
+DROP POLICY IF EXISTS "Admins review profile deletion" ON public.profile_deletion_requests;
+CREATE POLICY "Admins review profile deletion" ON public.profile_deletion_requests FOR ALL TO authenticated USING (EXISTS (SELECT 1 FROM public.profiles p WHERE p.id = auth.uid() AND p.role::TEXT = 'super_admin')) WITH CHECK (EXISTS (SELECT 1 FROM public.profiles p WHERE p.id = auth.uid() AND p.role::TEXT = 'super_admin'));
+
+DROP POLICY IF EXISTS "Users request corrections" ON public.correction_requests;
+CREATE POLICY "Users request corrections" ON public.correction_requests FOR INSERT TO authenticated WITH CHECK (requested_by = auth.uid());
+DROP POLICY IF EXISTS "Admins review corrections" ON public.correction_requests;
+CREATE POLICY "Admins review corrections" ON public.correction_requests FOR ALL TO authenticated USING (EXISTS (SELECT 1 FROM public.profiles p WHERE p.id = auth.uid() AND p.role::TEXT IN ('organizer','super_admin'))) WITH CHECK (EXISTS (SELECT 1 FROM public.profiles p WHERE p.id = auth.uid() AND p.role::TEXT IN ('organizer','super_admin')));
+
+DO $$ BEGIN ALTER PUBLICATION supabase_realtime ADD TABLE public.matches; EXCEPTION WHEN duplicate_object THEN NULL; WHEN undefined_object THEN NULL; END $$;
+DO $$ BEGIN ALTER PUBLICATION supabase_realtime ADD TABLE public.deliveries; EXCEPTION WHEN duplicate_object THEN NULL; WHEN undefined_object THEN NULL; END $$;
+DO $$ BEGIN ALTER PUBLICATION supabase_realtime ADD TABLE public.match_rooms; EXCEPTION WHEN duplicate_object THEN NULL; WHEN undefined_object THEN NULL; END $$;
