@@ -7,6 +7,7 @@ import { BottomNav, NavTab } from './components/BottomNav';
 import { HomeView } from './components/HomeView';
 import { ScoringInterface } from './components/scoring/ScoringInterface';
 import { MatchDetailView } from './components/match/MatchDetailView';
+import { PublicMatchRoomView } from './components/PublicMatchRoomView';
 import { PlayerProfileView } from './components/player/PlayerProfileView';
 import { TournamentView } from './components/tournament/TournamentView';
 import { RankingsView } from './components/rankings/RankingsView';
@@ -63,7 +64,10 @@ export default function App() {
   const handleSelectMatch = (matchId: string) => { setSelectedMatchId(matchId); setActiveTab('live'); };
   const handleSelectPlayer = (playerId: string) => { setSelectedPlayerId(playerId); setActiveTab('profile'); };
 
-  if (isPublicMatchRoute) return <LanguageProvider><div className="min-h-screen bg-slate-50 text-slate-900 font-sans antialiased"><MatchDetailView matchId={publicMatchId!} onShareMatch={() => {}} /></div></LanguageProvider>;
+  if (isPublicMatchRoute) {
+    const demoMatch = publicMatchId === 'match-live-1';
+    return <LanguageProvider><div className="min-h-screen bg-slate-50 text-slate-900 font-sans antialiased">{demoMatch ? <MatchDetailView matchId={publicMatchId!} onShareMatch={() => {}} /> : <PublicMatchRoomView matchId={publicMatchId!} />}</div></LanguageProvider>;
+  }
   if (!sessionReady) return <LanguageProvider><div className="min-h-screen bg-slate-50 flex items-center justify-center text-emerald-600 font-bold">Loading CollegeCricket.live…</div></LanguageProvider>;
   if (!authenticated || !currentUser) return <LanguageProvider><AuthScreen onAuthenticated={() => setSessionReady(true)} /></LanguageProvider>;
 
