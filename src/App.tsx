@@ -17,19 +17,24 @@ import { OnboardingModal } from './components/OnboardingModal';
 import { AuthScreen } from './components/AuthScreen';
 
 export default function App() {
+  const publicMatchMatch = window.location.pathname.match(/^\/match\/([^/]+)\/?$/);
+  const publicMatchId = publicMatchMatch?.[1] || null;
+  const isPublicMatchRoute = Boolean(publicMatchId);
+
   const [activeTab, setActiveTab] = useState<NavTab>('home');
-  const [sessionReady, setSessionReady] = useState(false);
+  const [sessionReady, setSessionReady] = useState(isPublicMatchRoute);
   const [authenticated, setAuthenticated] = useState(false);
   const [currentUser, setCurrentUser] = useState<Profile | null>(null);
-
   const [showSearchModal, setShowSearchModal] = useState(false);
   const [showShareModal, setShowShareModal] = useState(false);
   const [showOnboardingModal, setShowOnboardingModal] = useState(false);
-
-  const [selectedMatchId, setSelectedMatchId] = useState<string>('match-live-1');
+  const [selectedMatchId, setSelectedMatchId] = useState<string>(publicMatchId || 'match-live-1');
   const [selectedPlayerId, setSelectedPlayerId] = useState<string>('p-1');
 
   useEffect(() => {
+    // Public match pages intentionally bypass authentication.
+    if (isPublicMatchRoute) return;
+
     let mounted = true;
 
     const loadUser = async () => {
@@ -63,7 +68,7 @@ export default function App() {
       mounted = false;
       listener.subscription.unsubscribe();
     };
-  }, []);
+  }, [isPublicMatchRoute]);
 
   const loadProfile = async (userId: string, email: string) => {
     const { data, error } = await supabase
@@ -73,8 +78,6 @@ export default function App() {
       .single();
 
     if (error || !data) {
-      // The database trigger normally creates this row. This fallback also supports
-      // projects where the migration has not yet been applied.
       const fallback: Profile = {
         id: userId,
         email,
@@ -110,6 +113,15 @@ export default function App() {
     setSelectedPlayerId(playerId);
     setActiveTab('profile');
   };
+
+  // Public live match route: no login required.
+  if (isPublicMatchRoute) {
+    return (
+      <div className="min-h-screen bg-[#0B1120] text-slate-200 font-sans antialiased">
+        <MatchDetailView matchId={publicMatchId!} onShareMatch={() => {}} />
+      </div>
+    );
+  }
 
   if (!sessionReady) {
     return <div className="min-h-screen bg-[#070D19] flex items-center justify-center text-lime-400 font-bold">Loading CollegeCricket.live…</div>;
