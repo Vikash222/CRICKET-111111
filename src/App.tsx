@@ -35,30 +35,61 @@ export default function App() {
   const [selectedMatchId, setSelectedMatchId] = useState<string>('');
   const [selectedPlayerId, setSelectedPlayerId] = useState<string>('');
 
-  useEffect(() => {
-    if (isPublicMatchRoute) return;
-    let mounted = true;
-    const loadUser = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!mounted) return;
-      if (!session?.user) { setAuthenticated(false); setCurrentUser(null); setSessionReady(true); return; }
-      await loadProfile(session.user.id, session.user.email || '');
-      if (mounted) setSessionReady(true);
-    };
-    loadUser();
-    const { data: listener } = supabase.auth.onAuthStateChange(async (_event, session) => {
-      if (!mounted) return;
-      if (!session?.user) { setAuthenticated(false); setCurrentUser(null); return; }
-      await loadProfile(session.user.id, session.user.email || '');
-    });
-    return () => { mounted = false; listener.subscription.unsubscribe(); };
-  }, [isPublicMatchRoute]);
-
   const loadProfile = async (userId: string, email: string) => {
     const { data, error } = await supabase.from('profiles').select('*').eq('id', userId).single();
     const fallback: Profile = { id: userId, email, full_name: email.split('@')[0], role: 'player', language: 'english', is_verified: false };
     const profile = (!error && data ? data : fallback) as Profile;
-    setCurrentUser(profile); db.setCurrentUser(profile); setAuthenticated(true);
+    setCurrentUser(profile);
+    db.setCurrentUser(profile);
+    setAuthenticated(true);
+  };
+
+  const refreshAuthState = async () => {
+    const { data: { session }, error } = await supabase.auth.getSession();
+    if (error) throw error;
+    if (!session?.user) {
+      setAuthenticated(false);
+      setCurrentUser(null);
+      setSessionReady(true);
+      return;
+    }
+    await loadProfile(session.user.id, session.user.email || '');
+    setSessionReady(true);
+  };
+
+  useEffect(() => {
+    if (isPublicMatchRoute) return;
+    let mounted = true;
+
+    refreshAuthState().catch(() => {
+      if (!mounted) return;
+      setAuthenticated(false);
+      setCurrentUser(null);
+      setSessionReady(true);
+    });
+
+    const { data: listener } = supabase.auth.onAuthStateChange((event, session) => {
+      if (!mounted) return;
+      if (!session?.user) {
+        setAuthenticated(false);
+        setCurrentUser(null);
+        setSessionReady(true);
+        return;
+      }
+      // Avoid awaiting Supabase queries inside the auth callback. This prevents
+      // auth callback deadlocks and ensures the UI receives the new session first.
+      if (event === 'SIGNED_IN' || event === 'INITIAL_SESSION' || event === 'TOKEN_REFRESHED') {
+        void loadProfile(session.user.id, session.user.email || '').finally(() => {
+          if (mounted) setSessionReady(true);
+        });
+      }
+    });
+
+    return () => { mounted = false; listener.subscription.unsubscribe(); };
+  }, [isPublicMatchRoute]);
+
+  const handleAuthenticated = async () => {
+    await refreshAuthState();
   };
 
   const handleLogout = async () => { await supabase.auth.signOut(); setAuthenticated(false); setCurrentUser(null); setActiveTab('home'); };
@@ -70,7 +101,7 @@ export default function App() {
   }
 
   if (!sessionReady) return <LanguageProvider><div className="min-h-screen bg-slate-50 flex items-center justify-center text-emerald-600 font-bold">Loading CollegeCricket.live…</div></LanguageProvider>;
-  if (!authenticated || !currentUser) return <LanguageProvider><AuthScreen onAuthenticated={() => setSessionReady(true)} /></LanguageProvider>;
+  if (!authenticated || !currentUser) return <LanguageProvider><AuthScreen onAuthenticated={handleAuthenticated} /></LanguageProvider>;
 
   const currentRole: UserRole = currentUser.role;
   const isOrganizer = ['organizer', 'tournament_organizer', 'super_admin'].includes(currentRole);
