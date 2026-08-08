@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { db } from './services/db';
 import { supabase } from './lib/supabase';
+import { organizerLogout, restoreOrganizerSession } from './services/organizerAuth';
 import { UserRole, Profile } from './types/cricket';
 import { Navbar } from './components/Navbar';
 import { BottomNav, NavTab } from './components/BottomNav';
@@ -35,16 +36,28 @@ export default function App() {
   const [selectedMatchId, setSelectedMatchId] = useState<string>('');
   const [selectedPlayerId, setSelectedPlayerId] = useState<string>('');
 
-  const loadProfile = async (userId: string, email: string) => {
-    const { data, error } = await supabase.from('profiles').select('*').eq('id', userId).single();
-    const fallback: Profile = { id: userId, email, full_name: email.split('@')[0], role: 'player', language: 'english', is_verified: false };
-    const profile = (!error && data ? data : fallback) as Profile;
+  const applyProfile = (profile: Profile) => {
     setCurrentUser(profile);
     db.setCurrentUser(profile);
     setAuthenticated(true);
+    if (profile.role === 'organizer') setActiveTab('admin');
+  };
+
+  const loadProfile = async (userId: string, email: string) => {
+    const { data, error } = await supabase.from('profiles').select('*').eq('id', userId).maybeSingle();
+    const fallback: Profile = { id: userId, email, full_name: email.split('@')[0], role: 'player', language: 'english', is_verified: false };
+    const profile = (!error && data ? data : fallback) as Profile;
+    applyProfile(profile);
   };
 
   const refreshAuthState = async () => {
+    const organizer = await restoreOrganizerSession();
+    if (organizer) {
+      applyProfile(organizer);
+      setSessionReady(true);
+      return;
+    }
+
     const { data: { session }, error } = await supabase.auth.getSession();
     if (error) throw error;
     if (!session?.user) {
@@ -69,10 +82,17 @@ export default function App() {
 
     const { data: listener } = supabase.auth.onAuthStateChange((event, session) => {
       if (!mounted) return;
+      // Organizer authentication is independent from Supabase Auth.
       if (!session?.user) {
-        setAuthenticated(false);
-        setCurrentUser(null);
-        setSessionReady(true);
+        void restoreOrganizerSession().then((organizer) => {
+          if (!mounted) return;
+          if (organizer) applyProfile(organizer);
+          else {
+            setAuthenticated(false);
+            setCurrentUser(null);
+          }
+          setSessionReady(true);
+        });
         return;
       }
       if (event === 'SIGNED_IN' || event === 'INITIAL_SESSION' || event === 'TOKEN_REFRESHED') {
@@ -85,8 +105,26 @@ export default function App() {
     return () => { mounted = false; listener.subscription.unsubscribe(); };
   }, [isPublicMatchRoute]);
 
-  const handleAuthenticated = async () => { await refreshAuthState(); };
-  const handleLogout = async () => { await supabase.auth.signOut(); setAuthenticated(false); setCurrentUser(null); setActiveTab('home'); };
+  const handleAuthenticated = async (profile?: Profile) => {
+    if (profile) {
+      applyProfile(profile);
+      setSessionReady(true);
+      return;
+    }
+    await refreshAuthState();
+  };
+
+  const handleLogout = async () => {
+    if (currentUser?.role === 'organizer') {
+      await organizerLogout();
+    } else {
+      await supabase.auth.signOut();
+    }
+    setAuthenticated(false);
+    setCurrentUser(null);
+    setActiveTab('home');
+  };
+
   const handleSelectMatch = (matchId: string) => { setSelectedMatchId(matchId); setActiveTab('live'); };
   const handleSelectPlayer = (playerId: string) => { setSelectedPlayerId(playerId); setActiveTab('profile'); };
 
