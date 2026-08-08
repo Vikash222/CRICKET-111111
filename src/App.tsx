@@ -60,7 +60,6 @@ export default function App() {
   useEffect(() => {
     if (isPublicMatchRoute) return;
     let mounted = true;
-
     refreshAuthState().catch(() => {
       if (!mounted) return;
       setAuthenticated(false);
@@ -76,8 +75,6 @@ export default function App() {
         setSessionReady(true);
         return;
       }
-      // Avoid awaiting Supabase queries inside the auth callback. This prevents
-      // auth callback deadlocks and ensures the UI receives the new session first.
       if (event === 'SIGNED_IN' || event === 'INITIAL_SESSION' || event === 'TOKEN_REFRESHED') {
         void loadProfile(session.user.id, session.user.email || '').finally(() => {
           if (mounted) setSessionReady(true);
@@ -88,18 +85,12 @@ export default function App() {
     return () => { mounted = false; listener.subscription.unsubscribe(); };
   }, [isPublicMatchRoute]);
 
-  const handleAuthenticated = async () => {
-    await refreshAuthState();
-  };
-
+  const handleAuthenticated = async () => { await refreshAuthState(); };
   const handleLogout = async () => { await supabase.auth.signOut(); setAuthenticated(false); setCurrentUser(null); setActiveTab('home'); };
   const handleSelectMatch = (matchId: string) => { setSelectedMatchId(matchId); setActiveTab('live'); };
   const handleSelectPlayer = (playerId: string) => { setSelectedPlayerId(playerId); setActiveTab('profile'); };
 
-  if (isPublicMatchRoute) {
-    return <LanguageProvider><div className="min-h-screen bg-slate-50 text-slate-900 font-sans antialiased"><PublicMatchRoomView matchId={publicMatchId!} /></div></LanguageProvider>;
-  }
-
+  if (isPublicMatchRoute) return <LanguageProvider><div className="min-h-screen bg-slate-50 text-slate-900 font-sans antialiased"><PublicMatchRoomView matchId={publicMatchId!} /></div></LanguageProvider>;
   if (!sessionReady) return <LanguageProvider><div className="min-h-screen bg-slate-50 flex items-center justify-center text-emerald-600 font-bold">Loading CollegeCricket.live…</div></LanguageProvider>;
   if (!authenticated || !currentUser) return <LanguageProvider><AuthScreen onAuthenticated={handleAuthenticated} /></LanguageProvider>;
 
@@ -117,12 +108,12 @@ export default function App() {
         {activeTab === 'tournaments' && <TournamentView onSelectMatch={handleSelectMatch} />}
         {activeTab === 'rankings' && <RankingsView />}
         {activeTab === 'admin' && (isOrganizer ? <OrganizerRoomDashboard /> : <AdminDashboard />)}
-        {activeTab === 'profile' && selectedPlayerId && <PlayerProfileView playerId={selectedPlayerId} />}
+        {activeTab === 'profile' && <PlayerProfileView playerId={selectedPlayerId || currentUser.id} onEdit={() => setShowProfileEditor(true)} />}
       </main>
       <BottomNav activeTab={activeTab} onTabChange={setActiveTab} userRole={currentRole} />
       {showSearchModal && <SearchModal onClose={() => setShowSearchModal(false)} onSelectPlayer={handleSelectPlayer} onSelectMatch={handleSelectMatch} />}
       {showShareModal && selectedMatchId && <PublicMatchLinkModal matchId={selectedMatchId} onClose={() => setShowShareModal(false)} />}
-      {showProfileEditor && <PlayerProfileEditor onClose={() => setShowProfileEditor(false)} />}
+      {showProfileEditor && <PlayerProfileEditor onClose={() => setShowProfileEditor(false)} onSaved={(profile) => { setCurrentUser(profile); setSelectedPlayerId(profile.id); }} />}
       {showSettingsModal && <LanguageSettingsModal onClose={() => setShowSettingsModal(false)} />}
     </div>
   </LanguageProvider>;
