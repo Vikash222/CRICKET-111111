@@ -1,10 +1,11 @@
 import React, { useEffect, useState } from 'react';
-import { Copy, MapPin, Plus, Radio, Share2, X } from 'lucide-react';
+import { Copy, MapPin, Plus, Share2, X } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useLanguage } from '../i18n';
+import { getOrganizerSessionToken } from '../services/organizerAuth';
 
 type Team = { id: string; name: string; short_name: string; logo_url?: string };
-type Room = { id: string; room_code: string; room_name: string; match_name: string; venue: string; status: string; match_id?: string | null };
+type Room = { id: string; room_code: string; room_name: string; match_name: string; venue: string; status: string; match_id?: string | null; created_at?: string };
 
 export const OrganizerRoomDashboard: React.FC = () => {
   const { t } = useLanguage();
@@ -16,28 +17,39 @@ export const OrganizerRoomDashboard: React.FC = () => {
   const [form, setForm] = useState({ room_name: '', match_name: '', venue: '', team_a_id: '', team_b_id: '', overs: 20 });
 
   const load = async () => {
-    const [{ data: roomData }, { data: teamData }] = await Promise.all([
-      supabase.from('match_rooms').select('id,room_code,room_name,match_name,venue,status,match_id').order('created_at', { ascending: false }),
-      supabase.from('teams').select('id,name,short_name,logo_url').order('name'),
+    const token = getOrganizerSessionToken();
+    if (!token) { setError('Organizer session expired. Please login again.'); return; }
+    const [{ data: roomData, error: roomError }, { data: teamData, error: teamError }] = await Promise.all([
+      supabase.rpc('organizer_list_rooms', { p_session_token: token }),
+      supabase.rpc('organizer_list_teams', { p_session_token: token }),
     ]);
-    setRooms((roomData || []) as Room[]); setTeams((teamData || []) as Team[]);
+    if (roomError) setError(roomError.message); else setRooms((roomData || []) as Room[]);
+    if (teamError) setError(teamError.message); else setTeams((teamData || []) as Team[]);
   };
-  useEffect(() => { load(); const channel = supabase.channel('ccl-rooms').on('postgres_changes', { event: '*', schema: 'public', table: 'match_rooms' }, load).subscribe(); return () => { supabase.removeChannel(channel); }; }, []);
+
+  useEffect(() => { void load(); }, []);
 
   const createRoom = async (e: React.FormEvent) => {
     e.preventDefault(); setError('');
     if (!form.team_a_id || !form.team_b_id || form.team_a_id === form.team_b_id) { setError('Select two different teams.'); return; }
     if (rooms.filter((r) => r.status === 'live').length >= 8) { setError('Maximum 8 live matches are allowed.'); return; }
+    const token = getOrganizerSessionToken();
+    if (!token) { setError('Organizer session expired. Please login again.'); return; }
     setSaving(true);
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) { setError('Please login first.'); setSaving(false); return; }
-    const roomCode = `CCL-${new Date().getFullYear()}-${crypto.randomUUID().slice(0, 8).toUpperCase()}`;
-    const { data: room, error: roomError } = await supabase.from('match_rooms').insert({ room_code: roomCode, room_name: form.room_name, match_name: form.match_name, venue: form.venue, organizer_id: user.id, status: 'live', is_public: true }).select().single();
-    if (roomError || !room) { setError(roomError?.message || 'Could not create room.'); setSaving(false); return; }
-    const { data: match, error: matchError } = await supabase.from('matches').insert({ team_a_id: form.team_a_id, team_b_id: form.team_b_id, venue: form.venue, match_date: new Date().toISOString(), format: 't20', total_overs: form.overs, status: 'live', current_innings_number: 1, room_id: room.id, public_share_code: roomCode }).select('id').single();
-    if (matchError || !match) { await supabase.from('match_rooms').delete().eq('id', room.id); setError(matchError?.message || 'Could not create match.'); setSaving(false); return; }
-    await supabase.from('match_rooms').update({ match_id: match.id }).eq('id', room.id);
-    setForm({ room_name: '', match_name: '', venue: '', team_a_id: '', team_b_id: '', overs: 20 }); setOpen(false); await load(); setSaving(false);
+    const { data, error: roomError } = await supabase.rpc('organizer_create_room', {
+      p_session_token: token,
+      p_room_name: form.room_name,
+      p_match_name: form.match_name,
+      p_venue: form.venue,
+      p_team_a_id: form.team_a_id,
+      p_team_b_id: form.team_b_id,
+      p_overs: form.overs,
+    });
+    if (roomError || !data) { setError(roomError?.message || 'Could not create match.'); setSaving(false); return; }
+    setForm({ room_name: '', match_name: '', venue: '', team_a_id: '', team_b_id: '', overs: 20 });
+    setOpen(false);
+    await load();
+    setSaving(false);
   };
 
   const copy = async (room: Room) => { const url = `${window.location.origin}/match/${room.match_id || room.room_code}`; await navigator.clipboard?.writeText(url); };
