@@ -1,6 +1,0 @@
-{
-  "name": "College Cricket Live Scoring & Player Platform",
-  "description": "Comprehensive College & University Cricket Management, Live Ball-by-Ball Scoring, Player Profiles & Career Statistics, Tournaments & Analytics Platform.",
-  "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
-}
