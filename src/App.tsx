@@ -11,7 +11,7 @@ import { PlayerProfileView } from './components/player/PlayerProfileView';
 import { TournamentView } from './components/tournament/TournamentView';
 import { RankingsView } from './components/rankings/RankingsView';
 import { AdminDashboard } from './components/admin/AdminDashboard';
-import { OrganizerDashboard } from './components/OrganizerDashboard';
+import { OrganizerRoomDashboard } from './components/OrganizerRoomDashboard';
 import { SearchModal } from './components/SearchModal';
 import { PublicMatchLinkModal } from './components/PublicMatchLinkModal';
 import { PlayerProfileEditor } from './components/PlayerProfileEditor';
@@ -59,7 +59,6 @@ export default function App() {
     const profile = (!error && data ? data : fallback) as Profile;
     setCurrentUser(profile); db.setCurrentUser(profile); setAuthenticated(true);
   };
-
   const handleLogout = async () => { await supabase.auth.signOut(); setAuthenticated(false); setCurrentUser(null); setActiveTab('home'); };
   const handleSelectMatch = (matchId: string) => { setSelectedMatchId(matchId); setActiveTab('live'); };
   const handleSelectPlayer = (playerId: string) => { setSelectedPlayerId(playerId); setActiveTab('profile'); };
@@ -81,7 +80,7 @@ export default function App() {
         {activeTab === 'scoring' && <ScoringInterface matchId={selectedMatchId} onViewLiveMatch={() => setActiveTab('live')} />}
         {activeTab === 'tournaments' && <TournamentView onSelectMatch={handleSelectMatch} />}
         {activeTab === 'rankings' && <RankingsView />}
-        {activeTab === 'admin' && (isOrganizer ? <OrganizerDashboard /> : <AdminDashboard />)}
+        {activeTab === 'admin' && (isOrganizer ? <OrganizerRoomDashboard /> : <AdminDashboard />)}
         {activeTab === 'profile' && <PlayerProfileView playerId={selectedPlayerId} />}
       </main>
       <BottomNav activeTab={activeTab} onTabChange={setActiveTab} userRole={currentRole} />
