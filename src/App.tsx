@@ -15,7 +15,9 @@ import { OrganizerDashboard } from './components/OrganizerDashboard';
 import { SearchModal } from './components/SearchModal';
 import { PublicMatchLinkModal } from './components/PublicMatchLinkModal';
 import { OnboardingModal } from './components/OnboardingModal';
+import { LanguageSettingsModal } from './components/LanguageSettingsModal';
 import { AuthScreen } from './components/AuthScreen';
+import { LanguageProvider, Language } from './i18n';
 
 export default function App() {
   const publicMatchMatch = window.location.pathname.match(/^\/match\/([^/]+)\/?$/);
@@ -28,6 +30,7 @@ export default function App() {
   const [showSearchModal, setShowSearchModal] = useState(false);
   const [showShareModal, setShowShareModal] = useState(false);
   const [showOnboardingModal, setShowOnboardingModal] = useState(false);
+  const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [selectedMatchId, setSelectedMatchId] = useState<string>(publicMatchId || 'match-live-1');
   const [selectedPlayerId, setSelectedPlayerId] = useState<string>('p-1');
 
@@ -37,9 +40,7 @@ export default function App() {
     const loadUser = async () => {
       const { data: { session } } = await supabase.auth.getSession();
       if (!mounted) return;
-      if (!session?.user) {
-        setAuthenticated(false); setCurrentUser(null); setSessionReady(true); return;
-      }
+      if (!session?.user) { setAuthenticated(false); setCurrentUser(null); setSessionReady(true); return; }
       await loadProfile(session.user.id, session.user.email || '');
       if (mounted) setSessionReady(true);
     };
@@ -54,11 +55,8 @@ export default function App() {
 
   const loadProfile = async (userId: string, email: string) => {
     const { data, error } = await supabase.from('profiles').select('*').eq('id', userId).single();
-    if (error || !data) {
-      const fallback: Profile = { id: userId, email, full_name: email.split('@')[0], role: 'player', is_verified: false };
-      setCurrentUser(fallback); db.setCurrentUser(fallback); setAuthenticated(true); return;
-    }
-    const profile = data as Profile;
+    const fallback: Profile = { id: userId, email, full_name: email.split('@')[0], role: 'player', language: 'english', is_verified: false };
+    const profile = (!error && data ? data : fallback) as Profile;
     setCurrentUser(profile); db.setCurrentUser(profile); setAuthenticated(true);
   };
 
@@ -67,17 +65,18 @@ export default function App() {
   const handleSelectPlayer = (playerId: string) => { setSelectedPlayerId(playerId); setActiveTab('profile'); };
 
   if (isPublicMatchRoute) {
-    return <div className="min-h-screen bg-[#0B1120] text-slate-200 font-sans antialiased"><MatchDetailView matchId={publicMatchId!} onShareMatch={() => {}} /></div>;
+    return <LanguageProvider><div className="min-h-screen bg-slate-50 text-slate-900 font-sans antialiased"><MatchDetailView matchId={publicMatchId!} onShareMatch={() => {}} /></div></LanguageProvider>;
   }
-  if (!sessionReady) return <div className="min-h-screen bg-[#070D19] flex items-center justify-center text-lime-400 font-bold">Loading CollegeCricket.live…</div>;
-  if (!authenticated || !currentUser) return <AuthScreen onAuthenticated={() => setSessionReady(true)} />;
+  if (!sessionReady) return <LanguageProvider><div className="min-h-screen bg-slate-50 flex items-center justify-center text-emerald-600 font-bold">Loading CollegeCricket.live…</div></LanguageProvider>;
+  if (!authenticated || !currentUser) return <LanguageProvider initialLanguage={(currentUser?.language || 'english') as Language}><AuthScreen onAuthenticated={() => setSessionReady(true)} /></LanguageProvider>;
 
   const currentRole: UserRole = currentUser.role;
   const isOrganizer = ['organizer', 'tournament_organizer', 'super_admin'].includes(currentRole);
+  const language = (currentUser.language || 'english') as Language;
 
-  return (
-    <div className="min-h-screen bg-[#0B1120] text-slate-200 font-sans antialiased selection:bg-lime-500 selection:text-slate-900">
-      <Navbar currentRole={currentRole} onOpenSearch={() => setShowSearchModal(true)} onOpenProfile={() => setShowOnboardingModal(true)} onShareMatch={() => setShowShareModal(true)} onLogout={handleLogout} />
+  return <LanguageProvider initialLanguage={language}>
+    <div className="min-h-screen bg-slate-50 text-slate-900 font-sans antialiased selection:bg-emerald-100 selection:text-emerald-900">
+      <Navbar currentRole={currentRole} onOpenSearch={() => setShowSearchModal(true)} onOpenProfile={() => setShowOnboardingModal(true)} onOpenSettings={() => setShowSettingsModal(true)} onShareMatch={() => setShowShareModal(true)} onLogout={handleLogout} />
       <main>
         {activeTab === 'home' && <HomeView onSelectMatch={handleSelectMatch} onSelectPlayer={handleSelectPlayer} onNavigateToScorer={() => setActiveTab('scoring')} />}
         {activeTab === 'live' && <MatchDetailView matchId={selectedMatchId} onShareMatch={() => setShowShareModal(true)} />}
@@ -91,6 +90,7 @@ export default function App() {
       {showSearchModal && <SearchModal onClose={() => setShowSearchModal(false)} onSelectPlayer={handleSelectPlayer} onSelectMatch={handleSelectMatch} />}
       {showShareModal && <PublicMatchLinkModal matchId={selectedMatchId} onClose={() => setShowShareModal(false)} />}
       {showOnboardingModal && <OnboardingModal onClose={() => setShowOnboardingModal(false)} />}
+      {showSettingsModal && <LanguageSettingsModal onClose={() => setShowSettingsModal(false)} />}
     </div>
-  );
+  </LanguageProvider>;
 }
